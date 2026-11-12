@@ -25,7 +25,59 @@ function MultilingualTextXBlock(runtime, element) { // eslint-disable-line no-un
         return panel.getAttribute('data-language');
     });
 
+    var cookieName = 'openedx-language-preference';
+    var seenPrefKey = 'multilingual_text:' + courseId + ':seen_pref';
+
+    function getPlatformLanguage() {
+        try {
+            var parts = (document.cookie || '').split('; ');
+            for (var i = 0; i < parts.length; i++) {
+                if (parts[i].indexOf(cookieName + '=') === 0) {
+                    return decodeURIComponent(parts[i].split('=')[1]).toLowerCase();
+                }
+            }
+        } catch (e) {
+            // cookies unavailable
+        }
+        return null;
+    }
+
+    function matchLanguage(targetLang) {
+        if (!targetLang) return null;
+        var normalized = String(targetLang).toLowerCase().replace('_', '-');
+        var base = normalized.split('-')[0];
+        for (var i = 0; i < available.length; i++) {
+            if (String(available[i]).toLowerCase().replace('_', '-') === normalized) {
+                return available[i];
+            }
+        }
+        for (var j = 0; j < available.length; j++) {
+            if (String(available[j]).toLowerCase().split(/[-_]/)[0] === base) {
+                return available[j];
+            }
+        }
+        return null;
+    }
+
     function storedLanguage() {
+        var platform = getPlatformLanguage();
+        var lastSeen = null;
+        try {
+            lastSeen = window.localStorage.getItem(seenPrefKey);
+        } catch (e) {}
+
+        // If the platform preference changed since last visit, update to it if available
+        if (platform && platform !== lastSeen) {
+            try {
+                window.localStorage.setItem(seenPrefKey, platform);
+            } catch (e) {}
+            var matched = matchLanguage(platform);
+            if (matched) {
+                remember(matched);
+                return matched;
+            }
+        }
+
         try {
             return window.localStorage.getItem(storageKey);
         } catch (error) {
