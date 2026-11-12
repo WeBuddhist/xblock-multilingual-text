@@ -25,7 +25,118 @@ function MultilingualTextXBlock(runtime, element) { // eslint-disable-line no-un
         return panel.getAttribute('data-language');
     });
 
+    var cookieName = 'openedx-language-preference';
+    var seenPrefKey = 'multilingual_text:' + courseId + ':seen_pref';
+
+    function getPlatformLanguage() {
+        try {
+            var match = (document.cookie || '').match(/(?:^|;\s*)openedx-language-preference=([^;]+)/);
+            if (match) {
+                return decodeURIComponent(match[1]).toLowerCase();
+            }
+            if (window.parent && window.parent !== window) {
+                var parentMatch = (window.parent.document.cookie || '').match(/(?:^|;\s*)openedx-language-preference=([^;]+)/);
+                if (parentMatch) {
+                    return decodeURIComponent(parentMatch[1]).toLowerCase();
+                }
+            }
+        } catch (e) {
+            // cookies unavailable or cross-origin iframe
+        }
+        return null;
+    }
+
+    function getOptionCandidates() {
+        return options.map(function (option) {
+            return {
+                code: option.getAttribute('data-language-option'),
+                label: (option.textContent || '').trim()
+            };
+        });
+    }
+
+    function matchLanguage(targetLang) {
+        if (!targetLang) return null;
+        var normTarget = String(targetLang).toLowerCase().replace('_', '-');
+        var baseTarget = normTarget.split('-')[0];
+        var candidates = getOptionCandidates();
+
+        // 1. Direct code/tag exact match or prefix match
+        for (var i = 0; i < candidates.length; i++) {
+            var normCode = String(candidates[i].code || '').toLowerCase().replace('_', '-');
+            if (normCode === normTarget || normCode === baseTarget || normCode.split(/[-_]/)[0] === baseTarget) {
+                return candidates[i].code;
+            }
+        }
+
+        // 2. Match against localized language display names (e.g. "Français", "French", "English", "Anglais")
+        var names = [];
+        try {
+            if (typeof Intl !== 'undefined' && Intl.DisplayNames) {
+                var dnEn = new Intl.DisplayNames(['en'], { type: 'language' });
+                var dnSelf = new Intl.DisplayNames([baseTarget], { type: 'language' });
+                var addName = function (val) {
+                    if (val) {
+                        var low = val.toLowerCase();
+                        if (names.indexOf(low) === -1) names.push(low);
+                    }
+                };
+                addName(dnEn.of(baseTarget));
+                addName(dnSelf.of(baseTarget));
+                addName(dnEn.of(normTarget));
+                addName(dnSelf.of(normTarget));
+            }
+        } catch (e) {
+            // ignore Intl errors
+        }
+
+        // Common dictionary fallbacks in case Intl is unavailable or non-standard
+        var fallbacks = {
+            'fr': ['french', 'français', 'francais'],
+            'en': ['english', 'anglais'],
+            'es': ['spanish', 'español', 'espanol'],
+            'de': ['german', 'deutsch']
+        };
+        if (fallbacks[baseTarget]) {
+            fallbacks[baseTarget].forEach(function (n) {
+                if (names.indexOf(n) === -1) names.push(n);
+            });
+        }
+
+        for (var j = 0; j < candidates.length; j++) {
+            var label = (candidates[j].label || '').toLowerCase();
+            var code = (candidates[j].code || '').toLowerCase();
+            for (var k = 0; k < names.length; k++) {
+                var n = names[k];
+                if (label === n || label.indexOf(n) === 0 || n.indexOf(label) === 0 ||
+                    code === n || code.indexOf(n) === 0 || n.indexOf(code) === 0) {
+                    return candidates[j].code;
+                }
+            }
+        }
+
+        return null;
+    }
+
     function storedLanguage() {
+        var platform = getPlatformLanguage();
+        var lastSeen = null;
+        try {
+            lastSeen = window.localStorage.getItem(seenPrefKey);
+        } catch (e) {}
+
+        // If the platform preference changed since last visit, update to it if available
+        if (platform && platform !== lastSeen) {
+            try {
+                window.localStorage.setItem(seenPrefKey, platform);
+            } catch (e) {}
+            var matched = matchLanguage(platform);
+            if (matched) {
+                remember(matched);
+                return matched;
+            }
+        }
+
         try {
             return window.localStorage.getItem(storageKey);
         } catch (error) {
